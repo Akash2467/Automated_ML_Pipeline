@@ -25,7 +25,23 @@ This is a Streamlit-based web application that automates the machine learning wo
 - matplotlib
 - seaborn
 - joblib
-  
+
+## Preffered Dataset Format
+Preferred Dataset Format
+To ensure smooth execution and avoid errors during model training and prediction, it is recommended to upload datasets that:
+
+Are in .csv, .xlsx, or .xls format.
+
+Do not contain mixed delimiters (e.g., both commas and semicolons).
+
+Have a single header row (avoid files with metadata or multiple headers).
+
+Contain well-formatted tabular data with clear column names.
+
+Avoid entirely empty columns or rows.
+
+Do not include extremely large text fields or unstructured data in a single column.
+
 ## Live Demo
 [Click here to try the app](https://automatedmlpipeline-qmde2kwomymjoq5xfaou4j.streamlit.app/)
 
