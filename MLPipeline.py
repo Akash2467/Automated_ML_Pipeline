@@ -16,9 +16,9 @@ from sklearn.decomposition import PCA
 import os
 import joblib
 def load_data(file):
-    if file.name.endswith('.csv') or file.name.endswith('.xls'):
+    if file.name.endswith('.csv'):
         df=pd.read_csv(file)
-    elif file.name.endswith('xlsx'):
+    elif file.name.endswith('xlsx') or file.name.endswith('.xls'):
         df=pd.read_excel(file)
     else:
         st.error("Unsupported File Type")
