@@ -31,4 +31,4 @@ This is a Streamlit-based web application that automates the machine learning wo
 Make sure you have Streamlit installed, then run:
 
 ```bash
-streamlit run app.py
+streamlit run MLPipeline.py
