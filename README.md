@@ -14,7 +14,7 @@ This is a Streamlit-based web application that automates the machine learning wo
 - Displays evaluation metrics and visualizations
 - Saves trained models locally
 - Allows manual input for predictions
-
+- Displays 2D scatter plot of clusters using PCA
 ## Technologies Used
 
 - Python
