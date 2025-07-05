@@ -16,68 +16,57 @@ from sklearn.decomposition import PCA
 import os
 import joblib
 
-# Initialize session state
-if 'model' not in st.session_state:
-    st.session_state.model = None
-if 'feature_names' not in st.session_state:
-    st.session_state.feature_names = []
-if 'target_encoder' not in st.session_state:
-    st.session_state.target_encoder = None
-if 'problem_type' not in st.session_state:
-    st.session_state.problem_type = None
-if 'df' not in st.session_state:
-    st.session_state.df = None
-
+# --- Load data safely ---
 def load_data(file):
     try:
         if file.name.endswith('.csv'):
             try:
-                return pd.read_csv(file)
-            except pd.errors.ParserError:
+                df = pd.read_csv(file)
+            except:
                 file.seek(0)
-                return pd.read_csv(file, delimiter=';')
+                df = pd.read_csv(file, delimiter=';')
         elif file.name.endswith(('.xlsx', '.xls')):
-            return pd.read_excel(file)
+            df = pd.read_excel(file)
         else:
-            st.error("Unsupported file type.")
+            st.error("Unsupported file format")
             return None
+        return df
     except Exception as e:
         st.error(f"Error reading the file: {e}")
         return None
 
+# --- Problem detection ---
 def detect_problem(data, target):
     if target is None or target not in data.columns:
         return 'Clustering'
     target_series = data[target]
-    if target_series.dtype == 'object':
+    if target_series.dtype == 'object' or target_series.nunique() <= 7:
         return 'Classification'
-    unique = target_series.nunique()
-    return 'Classification' if unique <= 7 else 'Regression'
+    else:
+        return 'Regression'
 
+# --- Preprocess ---
 def preprocess_data(data, target):
-    try:
-        data.dropna(axis=1, how='all', inplace=True)
-        if data.empty:
-            raise ValueError('Dataset is empty after removing empty columns')
-        numeric_columns = data.select_dtypes(include=['number']).columns.tolist()
-        cat_columns = data.select_dtypes(include=['object']).columns.tolist()
+    data.dropna(axis=1, how='all', inplace=True)
+    if data.empty:
+        raise ValueError("Dataset is empty after removing empty columns")
+    numeric_cols = data.select_dtypes(include='number').columns.tolist()
+    cat_cols = data.select_dtypes(include='object').columns.tolist()
+    if numeric_cols:
         si = SimpleImputer(strategy='mean')
+        data[numeric_cols] = si.fit_transform(data[numeric_cols])
+    if cat_cols:
         si_c = SimpleImputer(strategy='most_frequent')
-        if numeric_columns:
-            data[numeric_columns] = si.fit_transform(data[numeric_columns])
-        if cat_columns:
-            data[cat_columns] = si_c.fit_transform(data[cat_columns])
-        le_dict = {}
-        for col in cat_columns:
-            le = LabelEncoder()
-            data[col] = le.fit_transform(data[col])
-            if col == target:
-                le_dict[col] = le
-        return data, le_dict.get(target, None)
-    except Exception as e:
-        st.error(f"Error during preprocessing: {e}")
-        return None, None
+        data[cat_cols] = si_c.fit_transform(data[cat_cols])
+    le_dict = {}
+    for col in cat_cols:
+        le = LabelEncoder()
+        data[col] = le.fit_transform(data[col])
+        if col == target:
+            le_dict[col] = le
+    return data, le_dict.get(target, None)
 
+# --- Model training functions ---
 def train_classification(model_name, xtrain, xtest, ytrain, ytest):
     models = {
         'Logistic Regression': LogisticRegression(),
@@ -87,11 +76,9 @@ def train_classification(model_name, xtrain, xtest, ytrain, ytest):
         'Gradient Boosting': GradientBoostingClassifier()
     }
     model = models.get(model_name)
-    if model:
-        model.fit(xtrain, ytrain)
-        acc = accuracy_score(ytest, model.predict(xtest))
-        return model, acc
-    return None, None
+    model.fit(xtrain, ytrain)
+    acc = accuracy_score(ytest, model.predict(xtest))
+    return model, acc
 
 def train_regression(model_name, xtrain, xtest, ytrain, ytest):
     models = {
@@ -100,94 +87,99 @@ def train_regression(model_name, xtrain, xtest, ytrain, ytest):
         'Lasso': Lasso()
     }
     model = models.get(model_name)
-    if model:
-        model.fit(xtrain, ytrain)
-        r2 = r2_score(ytest, model.predict(xtest))
-        return model, r2
-    return None, None
+    model.fit(xtrain, ytrain)
+    r2 = r2_score(ytest, model.predict(xtest))
+    return model, r2
 
 def train_clustering(model_name, data, n_clusters):
-    try:
-        if model_name == 'K Means':
-            model = KMeans(n_clusters=n_clusters)
-        elif model_name == 'Agglomerative':
-            model = AgglomerativeClustering(n_clusters=n_clusters)
-        else:
-            return None, None, None
-        y_pred = model.fit_predict(data)
-        score = silhouette_score(data, y_pred) if len(set(y_pred)) > 1 else None
-        return model, y_pred, score
-    except Exception as e:
-        st.error(f"Clustering error: {e}")
-        return None, None, None
+    if model_name == 'K Means':
+        model = KMeans(n_clusters=n_clusters)
+    elif model_name == 'Agglomerative':
+        model = AgglomerativeClustering(n_clusters=n_clusters)
+    else:
+        raise ValueError("Invalid model")
+    preds = model.fit_predict(data)
+    score = silhouette_score(data, preds) if len(set(preds)) > 1 else None
+    return model, preds, score
 
+# --- Save model ---
 def save_model(model):
-    path = 'saved_models/trained_model.pkl'
-    os.makedirs('saved_models', exist_ok=True)
-    joblib.dump(model, path)
-    return path
+    os.makedirs("saved_models", exist_ok=True)
+    joblib.dump(model, "saved_models/model.pkl")
 
-def plot_clusters(data, labels):
-    pca = PCA(n_components=2)
-    reduced = pca.fit_transform(data)
-    df = pd.DataFrame(reduced, columns=['PC1', 'PC2'])
-    df['Cluster'] = labels
-    fig, ax = plt.subplots()
-    sns.scatterplot(data=df, x='PC1', y='PC2', hue='Cluster', palette='tab10', ax=ax)
-    st.pyplot(fig)
-
+# --- Start Streamlit App ---
 st.title("AutoML Web App")
 
-file = st.file_uploader("Upload CSV or Excel file", type=["csv", "xlsx", "xls"])
+if 'df' not in st.session_state:
+    st.session_state.df = None
+    st.session_state.problem_type = None
+    st.session_state.model = None
+    st.session_state.feature_names = []
+    st.session_state.target_encoder = None
 
-if file:
-    df = load_data(file)
+uploaded_file = st.file_uploader("Upload CSV or Excel file", type=["csv", "xlsx", "xls"])
+if uploaded_file:
+    df = load_data(uploaded_file)
     if df is not None:
         st.session_state.df = df
-        st.dataframe(df.head())
-        target = st.selectbox("Select Target Column (Leave empty for Clustering)", ["None"] + df.columns.tolist())
+        st.write("Preview:", df.head())
+        columns = df.columns.tolist()
+        target = st.selectbox("Select Target (None for Clustering)", ["None"] + columns)
         target = None if target == "None" else target
+        df, target_encoder = preprocess_data(df, target)
+        st.session_state.target_encoder = target_encoder
+        st.session_state.problem_type = detect_problem(df, target)
+        st.session_state.df = df
 
-        df_cleaned, target_encoder = preprocess_data(df.copy(), target)
-        if df_cleaned is not None:
-            st.session_state.target_encoder = target_encoder
-            st.session_state.problem_type = detect_problem(df_cleaned, target)
-            st.info(f"Detected Problem Type: {st.session_state.problem_type}")
+# After file is uploaded and preprocessed
+if st.session_state.df is not None and st.session_state.problem_type:
+    df = st.session_state.df
+    problem_type = st.session_state.problem_type
+    st.info(f"Detected Problem Type: {problem_type}")
 
-            if st.session_state.problem_type in ["Classification", "Regression"]:
-                X = df_cleaned.drop(columns=[target])
-                y = df_cleaned[target]
-                st.session_state.feature_names = X.columns.tolist()
-                xtrain, xtest, ytrain, ytest = train_test_split(X, y, test_size=0.2, random_state=42)
+    if problem_type in ["Classification", "Regression"]:
+        X = df.drop(columns=[target])
+        y = df[target]
+        xtrain, xtest, ytrain, ytest = train_test_split(X, y, test_size=0.2, random_state=42)
+        st.session_state.feature_names = X.columns.tolist()
 
-                if st.session_state.problem_type == "Classification":
-                    model_choice = st.selectbox("Select Classification Model", list({
-                        'Logistic Regression', 'Decision Tree', 'Random Forest', 
-                        'Support Vector Classifier', 'Gradient Boosting'}))
-                    if st.button("Train Classification Model"):
-                        model, acc = train_classification(model_choice, xtrain, xtest, ytrain, ytest)
-                        if acc is not None:
-                            st.success(f"Trained {model_choice} with Accuracy: {acc:.2f}")
-                            save_model(model)
-                            st.session_state.model = model
+        if problem_type == "Classification":
+            model_choice = st.selectbox("Select Classification Model", [
+                'Logistic Regression', 'Decision Tree', 'Random Forest',
+                'Support Vector Classifier', 'Gradient Boosting'
+            ])
+            if st.button("Train Classification Model"):
+                model, acc = train_classification(model_choice, xtrain, xtest, ytrain, ytest)
+                st.success(f"Trained {model_choice} with Accuracy: {acc:.2f}")
+                save_model(model)
+                st.session_state.model = model
 
-                elif st.session_state.problem_type == "Regression":
-                    model_choice = st.selectbox("Select Regression Model", ['Linear Regression', 'Ridge', 'Lasso'])
-                    if st.button("Train Regression Model"):
-                        model, r2 = train_regression(model_choice, xtrain, xtest, ytrain, ytest)
-                        if r2 is not None:
-                            st.success(f"Trained {model_choice} with R² Score: {r2:.2f}")
-                            save_model(model)
-                            st.session_state.model = model
+        elif problem_type == "Regression":
+            model_choice = st.selectbox("Select Regression Model", ['Linear Regression', 'Ridge', 'Lasso'])
+            if st.button("Train Regression Model"):
+                model, r2 = train_regression(model_choice, xtrain, xtest, ytrain, ytest)
+                st.success(f"Trained {model_choice} with R² Score: {r2:.2f}")
+                save_model(model)
+                st.session_state.model = model
 
-            elif st.session_state.problem_type == "Clustering":
-                model_choice = st.selectbox("Select Clustering Model", ['K Means', 'Agglomerative'])
-                n_clusters = st.number_input("Number of Clusters", min_value=2, value=3, step=1)
-                if st.button("Train Clustering Model"):
-                    model, labels, score = train_clustering(model_choice, df_cleaned, n_clusters)
-                    if score:
-                        st.success(f"Silhouette Score: {score:.2f}")
-                    save_model(model)
-                    st.session_state.model = model
-                    st.subheader("Cluster Visualization")
-                    plot_clusters(df_cleaned, labels)
+    elif problem_type == "Clustering":
+        model_choice = st.selectbox("Select Clustering Model", ['K Means', 'Agglomerative'])
+        n_clusters = st.number_input("Number of Clusters", min_value=2, value=3)
+        if st.button("Train Clustering Model"):
+            model, preds, score = train_clustering(model_choice, df, n_clusters)
+            if score:
+                st.success(f"Silhouette Score: {score:.2f}")
+            else:
+                st.warning("Could not compute Silhouette Score.")
+            save_model(model)
+            st.session_state.model = model
+
+            # PCA scatter plot
+            pca = PCA(n_components=2)
+            reduced = pca.fit_transform(df)
+            plot_df = pd.DataFrame(reduced, columns=['PC1', 'PC2'])
+            plot_df['Cluster'] = preds
+            fig, ax = plt.subplots()
+            sns.scatterplot(data=plot_df, x='PC1', y='PC2', hue='Cluster', palette='tab10', ax=ax)
+            st.pyplot(fig)
+
