@@ -25,10 +25,14 @@ This is a Streamlit-based web application that automates the machine learning wo
 - matplotlib
 - seaborn
 - joblib
+  
+## Live Demo
+[Click here to try the app](https://automatedmlpipeline-qmde2kwomymjoq5xfaou4j.streamlit.app/)
 
 ## How to Run
 
 Make sure you have Streamlit installed, then run:
+
 
 ```bash
 streamlit run MLPipeline.py
